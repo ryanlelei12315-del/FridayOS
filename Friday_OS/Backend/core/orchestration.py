@@ -22,7 +22,7 @@ class TaskOrchestrator:
                 "depends_on": [], "reason": "The request was empty."
             }])
         instructions = (
-            "You are FridayOS's task planner. Return a valid JSON array only. Each item "
+            "You are FridayOS's task planner. Return a JSON object with a "steps" array. Each item "
             "must contain step (integer), agent (string), action (string), depends_on "
             "(array of prior step integers), and reason (string). Plan only; do not "
             "execute tools or invent unavailable tools. For destructive, financial, "
