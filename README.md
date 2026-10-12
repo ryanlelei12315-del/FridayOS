@@ -1,220 +1,154 @@
-# FridayOS
+# FridayOS — Open-Source Real-Time Voice AI Assistant
 
-An ambient operating system intelligence powered by LiveKit, Google Gemini, and RAG-based memory.
+**FridayOS** is a Python-powered, real-time **voice and visual AI assistant** built with **LiveKit Agents, WebRTC, Google Gemini, and retrieval-augmented generation (RAG)**. It is designed as a personal AI operating-system layer: talk naturally to an AI agent, invoke tools, search the web, work with files, recall project knowledge, and connect supported automation services.
+
+If you're exploring an **open-source voice assistant**, a **LiveKit AI agent**, a **Python conversational AI project**, or an assistant with **long-term memory and tool calling**, FridayOS is a practical codebase to study and extend.
+
+> Project status: active development. Capabilities depend on the configured providers, credentials, installed dependencies, and the current implementation in the repository.
+
+## What FridayOS is built to do
+
+- **Real-time voice conversations** using LiveKit Agents and WebRTC.
+- **LLM-powered responses** with Google Gemini; optional Groq-backed automation is documented where supported.
+- **Tool calling** for supported web, browser, file, email, application, and automation workflows.
+- **Knowledge retrieval (RAG)** using ChromaDB so local documents can be indexed and queried semantically.
+- **Conversation and project memory** with the repository's memory components and optional PostgreSQL persistence.
+- **Ambient context and automation foundations** for building a more proactive desktop assistant.
+- **Expo-based mobile/web interface** in the companion frontend project.
+
+## Technology stack
+
+| Area | Technologies |
+| --- | --- |
+| AI agent and backend | Python, LiveKit Agents |
+| Real-time communications | LiveKit, WebRTC |
+| Language model | Google Gemini |
+| Optional automation model | Groq |
+| Retrieval-augmented generation | ChromaDB, embeddings / vector search |
+| Memory persistence | PostgreSQL (optional, based on configuration) |
+| Frontend | React Native, Expo, TypeScript |
+| Testing | pytest |
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Expo Frontend (Mobile/Web)            │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ Dashboard    │  │ VoiceButton  │  │ ErrorBoundary │  │
-│  │ (HUD/Status) │  │ (LiveKit     │  │ (Retry Screen)│  │
-│  │              │  │  Room UI)    │  │               │  │
-│  └──────┬───────┘  └──────┬───────┘  └───────────────┘  │
-│         │                 │                              │
-│         └─────────────────┴── LiveKit Room ──────────────┤
-│                           │                              │
-└───────────────────────────┼──────────────────────────────┘
-                            │ WebRTC
-┌───────────────────────────┼──────────────────────────────┐
-│              LiveKit Agent Server (Backend)              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐ │
-│  │ Friday   │  │ Tools    │  │ RAG      │  │ Ambient │ │
-│  │ Agent    │  │ (25+     │  │ (ChromaDB│  │ Context │ │
-│  │ (Gemini) │  │  tools)  │  │  Vector) │  │ Tracker │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────┘ │
-│  ┌──────────┐  ┌──────────┐                              │
-│  │Automation│  │ Memory   │                              │
-│  │ Manager  │  │(Postgres)│                              │
-│  └──────────┘  └──────────┘                              │
-└──────────────────────────────────────────────────────────┘
+```text
+Expo / React Native frontend
+  ├── Dashboard and assistant controls
+  └── LiveKit room connection
+            │ WebRTC
+            ▼
+Python LiveKit agent backend
+  ├── Gemini conversation model
+  ├── Registered function tools
+  ├── Document retrieval (ChromaDB / RAG)
+  ├── Memory and context components
+  └── Optional external integrations
 ```
 
-## Prerequisites
+## Repository layout
 
-- **Node.js** >= 18 (for Expo frontend)
-- **Python** >= 3.10 (for backend)
-- **LiveKit Cloud** account (free tier at https://cloud.livekit.io/)
-- **Google AI** API key (https://ai.google.dev/)
-- **Groq** API key (optional, for automation worker - https://console.groq.com/)
+The backend lives under `Friday_OS/Backend/`. The companion frontend has been developed in the separate [FridayOS_Frontend repository](https://github.com/ryanlelei12315-del/FridayOS_Frontend); follow that repository's current setup instructions unless its code has been moved into this repository.
 
-## Environment Variables
+Typical backend areas include:
 
-Copy `.env.example` to `.env` and fill in your credentials:
+- `main.py` — primary agent entry point.
+- `tools/` — function tools for supported integrations and actions.
+- `core/` — retrieval, automation, and context components.
+- `memory.py` — memory initialization.
+- `prompts.py` — assistant instructions and prompt configuration.
+- `tests/` — automated tests, where available.
 
-| Variable               | Required | Description                                          |
-| ---------------------- | -------- | ---------------------------------------------------- |
-| `LIVEKIT_URL`          | Yes      | LiveKit Cloud WebSocket URL (wss://\*.livekit.cloud) |
-| `LIVEKIT_API_KEY`      | Yes      | LiveKit API key                                      |
-| `LIVEKIT_API_SECRET`   | Yes      | LiveKit API secret                                   |
-| `GOOGLE_API_KEY`       | Yes      | Google Gemini API key                                |
-| `GROQ_API_KEY`         | No       | Groq API key (for automation worker)                 |
-| `GMAIL_USER`           | No       | Gmail address for email tool                         |
-| `GMAIL_APP_PASSWORD`   | No       | Gmail app password                                   |
-| `HOME_ASSISTANT_URL`   | No       | Home Assistant instance URL                          |
-| `HOME_ASSISTANT_TOKEN` | No       | Home Assistant long-lived token                      |
-| `POSTGRES_*`           | No       | PostgreSQL connection for memory persistence         |
+## Getting started
 
-For the frontend, create a `FridayOS_Frontend/.env` file with:
+### Requirements
 
-```
-EXPO_PUBLIC_LIVEKIT_URL=wss://your-project.livekit.cloud
-EXPO_PUBLIC_LIVEKIT_TOKEN=your-livekit-token
-```
+- Python 3.12 recommended (check dependency and deployment configuration for the exact supported version).
+- A [LiveKit Cloud](https://cloud.livekit.io/) project and credentials.
+- A [Google AI API key](https://ai.google.dev/).
+- Optional [Groq API key](https://console.groq.com/) for supported automation workflows.
+- Optional PostgreSQL and any credentials required by the integrations you enable.
 
-> **Security**: Never commit `.env` files. They are already in `.gitignore`.
+### Configure environment variables
 
-## Getting Started
+Copy the repository's `.env.example` to `.env` if present, then fill in the credentials required by your selected features. Common variables include:
 
-### Backend
+| Variable | Purpose |
+| --- | --- |
+| `LIVEKIT_URL` | LiveKit WebSocket URL |
+| `LIVEKIT_API_KEY` | LiveKit API key |
+| `LIVEKIT_API_SECRET` | LiveKit API secret |
+| `GOOGLE_API_KEY` | Google Gemini API key |
+| `GROQ_API_KEY` | Optional Groq integration |
+| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | Optional email integration |
+| `HOME_ASSISTANT_URL` / `HOME_ASSISTANT_TOKEN` | Optional Home Assistant integration |
+| `POSTGRES_*` | Optional PostgreSQL configuration |
+
+**Security:** never commit real API keys, access tokens, passwords, or populated `.env` files. Use local environment variables or your deployment platform's secret manager.
+
+### Run the backend
+
+From the repository root, inspect the current backend directory and its dependency file, then run:
 
 ```bash
-# Navigate to backend
 cd Friday_OS/Backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+python -m venv .venv
+# Windows:
+.venv\\Scripts\\activate
+# macOS / Linux:
+# source .venv/bin/activate
 pip install -r requirements.txt
-
-# Run in console mode (text-only, no audio)
-python main.py console
-
-# Run in voice mode (requires LiveKit Cloud)
-python main.py
 ```
 
-### Frontend
+If the installed entry point supports console mode, run `python main.py console` for text interaction. Run `python main.py` for the LiveKit voice workflow after configuring the required credentials. Check the current code and provider documentation if command options have changed.
+
+### Run the frontend
+
+The frontend setup is documented in the [FridayOS_Frontend repository](https://github.com/ryanlelei12315-del/FridayOS_Frontend). In a local clone, install its dependencies and follow its Expo scripts. A LiveKit room and a valid token/configuration are required for connected voice sessions.
+
+## Tool calling and integrations
+
+FridayOS uses LiveKit-compatible function tools for supported actions. Tool availability depends on the current source code and environment configuration. The repository documents tool areas such as:
+
+- Web search and browser actions
+- File creation, reading, searching, moving, and deletion
+- Application control
+- Email sending
+- Home Assistant smart-home actions
+- Memory recall and document retrieval
+- Automation helpers
+
+Review the implementation before enabling tools that can modify files, send messages, or control external systems. Grant only the permissions needed for your use case.
+
+## Retrieval-augmented generation (RAG) and memory
+
+The RAG components use a ChromaDB vector store to retrieve relevant content from ingested documents. This pattern helps a conversational assistant answer questions grounded in personal notes, project documentation, and other local knowledge.
+
+Example requests, when the relevant tools are configured:
+
+- “Learn from my project documentation.”
+- “Find the notes related to my current project.”
+- “What did my documentation say about this feature?”
+
+Ingestion and retrieval behavior depends on the implementation, supported file formats, and configured embedding/model providers.
+
+## Testing
+
+Where the repository's test suite is configured, install the backend dependencies and run pytest from the appropriate project directory. For example:
 
 ```bash
-# Navigate to frontend
-cd FridayOS_Frontend
-
-# Install dependencies
-npm install
-
-# Start Expo dev server
-npx expo start
-
-# Open in web browser
-npm run web
-
-# Open on Android emulator
-npm run android
-
-# Open on iOS simulator
-npm run ios
+python -m pytest tests/ -v
 ```
 
-## Usage Modes
+Check test paths against the current checkout before running; repository layout may change as the backend and frontend are consolidated.
 
-### Console Mode
+## Contributing
 
-Run `python main.py console` for a text-only interface. Friday responds via text in the terminal. No audio or microphone required.
+Issues, bug reports, documentation improvements, and focused pull requests are welcome. When reporting a problem, include your operating system, Python version, the relevant sanitized logs, and steps to reproduce it. **Do not include API keys, passwords, access tokens, or private conversation data.**
 
-### Voice Mode
+## Related project
 
-Run `python main.py` (without `console` argument) for full voice interaction. Requires:
-
-- LiveKit Cloud account with a room configured
-- Microphone access on the frontend device
-- The frontend Expo app connected to the same LiveKit room
-
-## Tool Architecture
-
-FridayOS uses **direct `@function_tool` registrations** as its primary tool architecture. All tools are defined in `Friday_OS/Backend/tools/` using LiveKit's `@function_tool` decorator and registered in the `TOOLS` list in `main.py`.
-
-**Available tool categories:**
-
-- **General**: Weather, web search, email, automation worker
-- **File Operations**: Create, read, delete, move, find files
-- **Application Control**: Open, close, list running apps
-- **Browser**: Open websites, search, read web content
-- **Home Assistant**: Control smart home devices
-- **Memory**: Recall past conversations
-- **RAG**: Learn from documents, query knowledge base
-
-## RAG (Retrieval Augmented Generation)
-
-FridayOS can ingest local documents into a ChromaDB vector store for semantic recall.
-
-```bash
-# Ingest a document (via Friday's tool interface)
-"Learn from my project documentation at C:\path\to\doc.md"
-
-# Query the knowledge base
-"What did I learn from my project docs?"
-```
-
-**Chunking strategies:**
-
-- **Code files** (`.py`, `.js`, `.ts`, etc.): Line-based chunking (50 lines, 10 line overlap) to preserve syntax
-- **Narrative text** (`.md`, `.txt`, `.pdf`): Sentence-boundary chunking (800 words, ~100 word overlap)
-- **Dense technical docs**: Smaller word-based chunks (400 words, 50 word overlap)
-
-## Project Structure
-
-```
-Live_Kit_Jarvis/
-├── Friday_OS/
-│   └── Backend/
-│       ├── main.py              # Main entrypoint (ACTIVE)
-│       ├── agent.py             # DEPRECATED - see main.py
-│       ├── core/
-│       │   ├── friday_rag.py    # RAG engine with ChromaDB
-│       │   ├── automation.py    # Automation manager
-│       │   └── tracker.py       # Ambient context tracker
-│       ├── tools/
-│       │   ├── tools.py         # General tools (weather, email, search)
-│       │   ├── tools_apps.py    # Application control tools
-│       │   ├── tools_browser.py # Browser tools
-│       │   ├── tools_files.py   # File operation tools
-│       │   ├── tools_memory.py  # Memory recall tools
-│       │   └── home_assistant_tools.py
-│       ├── memory.py            # Memory initialization
-│       └── prompts.py           # System prompts
-├── FridayOS_Frontend/
-│   ├── App.tsx                  # Root component with LiveKit + ErrorBoundary
-│   ├── app/
-│   │   ├── _layout.tsx          # App layout
-│   │   └── index.tsx            # Dashboard/HUD screen
-│   ├── components/
-│   │   ├── VoiceButton.tsx      # LiveKit room connection UI
-│   │   └── ErrorBoundary.tsx    # Error boundary with retry
-│   └── hooks/
-│       ├── useLiveKit.tsx       # LiveKit room context + provider
-│       └── useFridayOS.ts       # WebSocket bridge (legacy)
-├── tests/
-│   ├── test_agent.py            # Agent instantiation tests
-│   ├── test_rag.py              # RAG chunking + ingest/query tests
-│   └── test_tools.py            # SMTP email tool tests
-├── .env.example                 # Environment variable template
-├── .gitignore
-└── README.md
-```
-
-## Troubleshooting
-
-| Issue                     | Solution                                                                  |
-| ------------------------- | ------------------------------------------------------------------------- |
-| `GROQ_API_KEY not found`  | Set `GROQ_API_KEY` in `.env` (optional, for automation worker)            |
-| LiveKit connection fails  | Verify `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` are correct |
-| Expo shows white screen   | Check the ErrorBoundary - it will show a retry screen with details        |
-| SMTP email fails          | Use a Gmail App Password, not your regular password                       |
-| RAG query returns nothing | Ensure documents were ingested successfully first                         |
-| `agent.py` confusion      | `agent.py` is deprecated. Use `main.py` as the entrypoint                 |
-
-## Running Tests
-
-```bash
-# From the project root
-cd Friday_OS/Backend
-python -m pytest ../../tests/ -v
-```
+- **Frontend:** [ryanlelei12315-del/FridayOS_Frontend](https://github.com/ryanlelei12315-del/FridayOS_Frontend)
 
 ## License
 
-See `FridayOS_Frontend/LICENSE`.
+Check the license file in this repository and the companion frontend repository for the terms that apply to each codebase.
