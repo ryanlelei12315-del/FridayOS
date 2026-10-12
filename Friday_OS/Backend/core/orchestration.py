@@ -1,6 +1,7 @@
 """Validated planning layer for multi-step FridayOS requests."""
 
 import json
+import os
 from typing import Any, Awaitable, Callable
 
 Planner = Callable[[str], Awaitable[str]]
@@ -11,6 +12,7 @@ class TaskOrchestrator:
 
     def __init__(self, planning_model: Planner | None = None) -> None:
         self.planner = planning_model
+        self.model = os.getenv("FRIDAY_BACKEND_MODEL", "gpt-5.6-luna")
 
     async def generate_execution_plan(self, user_prompt: str) -> str:
         prompt = user_prompt.strip()
@@ -19,8 +21,6 @@ class TaskOrchestrator:
                 "step": 1, "agent": "monolith", "action": "ask_for_clarification",
                 "depends_on": [], "reason": "The request was empty."
             }])
-        if self.planner is None:
-            return json.dumps(self._fallback_plan())
         instructions = (
             "You are FridayOS's task planner. Return a valid JSON array only. Each item "
             "must contain step (integer), agent (string), action (string), depends_on "
