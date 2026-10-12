@@ -3,6 +3,7 @@ FridayOS Main Entrypoint
 LiveKit + Ambient Context + Automation Layer
 """
 
+import asyncio
 import json
 import os
 import signal
@@ -71,6 +72,8 @@ from tools.tools_files import (
 )
 
 from tools.tools_memory import recall_memory
+from tools.tools_vision import capture_active_screen
+from core.orchestration import TaskOrchestrator
 
 
 # ==========================================================
@@ -182,6 +185,7 @@ TOOLS = [
     turn_off_device,
     toggle_device,
     get_device_state,
+    capture_active_screen,
 ]
 
 
@@ -221,6 +225,18 @@ TOOLS += [
 ]
 
 
+@function_tool(
+    description=(
+        "Creates a sequential execution plan for a complex or multi-step request. "
+        "Call this before performing multi-step external actions."
+    )
+)
+async def plan_complex_task(user_prompt: str) -> str:
+    return await TaskOrchestrator().generate_execution_plan(user_prompt)
+
+
+TOOLS.append(plan_complex_task)
+
 # ==========================================================
 # AGENT
 # ==========================================================
@@ -237,7 +253,9 @@ class FridayAgent(Agent):
             "For requests requiring web research, memory lookup, email, desktop "
             "automation, file operations, application control, or other external "
             "actions, delegate the work to the reasoning layer and keep the user "
-            "informed briefly while it executes."
+            "informed briefly while it executes. For multi-step requests, use "
+            "plan_complex_task to create an ordered dependency plan before executing "
+            "the required registered tools."
         )
 
         super().__init__(
@@ -320,6 +338,35 @@ def shutdown_subsystems():
 
 context_tracker: AmbientContextTracker | None = None
 automation_manager: FridayAutomationManager | None = None
+
+
+async def start_ambient_trigger_loop(session: AgentSession) -> None:
+    """Monitor host CPU periodically and speak only on sustained high load."""
+    import psutil
+
+    consecutive_high_samples = 0
+    try:
+        while True:
+            await asyncio.sleep(120)
+            try:
+                cpu_usage = await asyncio.to_thread(psutil.cpu_percent, 1.0)
+                consecutive_high_samples = consecutive_high_samples + 1 if cpu_usage > 90.0 else 0
+                if consecutive_high_samples >= 2:
+                    await session.generate_reply(
+                        instructions=(
+                            f"Ambient diagnostic alert: CPU usage remains high "
+                            f"({cpu_usage:.1f}%). Briefly notify the user calmly. "
+                            "Do not claim an unverified cause."
+                        )
+                    )
+                    consecutive_high_samples = 0
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(f"[Ambient Trigger Error] {exc}")
+    except asyncio.CancelledError:
+        print("[Ambient] Trigger loop cancelled.")
+        raise
 
 
 # ==========================================================
@@ -427,14 +474,23 @@ async def entrypoint(
         ),
     )
 
+    ambient_task = asyncio.create_task(start_ambient_trigger_loop(session))
     try:
         await session.generate_reply(
-            instructions=f"{desktop_context}\n\n{WELCOME_MESSAGE}"
+            instructions=f"{desktop_context}\\n\\n{WELCOME_MESSAGE}"
         )
+        print("[Agent] Ready.")
+        await session.wait_for_shutdown()
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
-        print(f"[Greeting Error] {e}")
-
-    print("[Agent] Ready.")
+        print(f"[Session Error] {e}")
+    finally:
+        ambient_task.cancel()
+        try:
+            await ambient_task
+        except asyncio.CancelledError:
+            pass
 
 
 # ==========================================================
