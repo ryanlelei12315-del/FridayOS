@@ -74,6 +74,7 @@ from tools.tools_files import (
 from tools.tools_memory import recall_memory
 from tools.tools_vision import capture_active_screen
 from core.orchestration import TaskOrchestrator
+from jarvis_bridge_client import jarvis_say, jarvis_state
 
 
 # ==========================================================
@@ -236,6 +237,63 @@ async def plan_complex_task(user_prompt: str) -> str:
 
 
 TOOLS.append(plan_complex_task)
+
+
+# ==========================================================
+# JARVISBRIDGE WALLPAPER INTEGRATION
+# ==========================================================
+
+BRIDGE_STATES = {"idle", "listening", "thinking", "speaking"}
+
+
+def attach_jarvisbridge_hooks(session: AgentSession) -> tuple[asyncio.Queue, asyncio.Task]:
+    """Mirror LiveKit state transitions and assistant text to the local wallpaper."""
+    events: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+
+    async def publish_events() -> None:
+        while True:
+            kind, value = await events.get()
+            try:
+                if kind == "state":
+                    await asyncio.to_thread(jarvis_state, value)
+                elif kind == "alert":
+                    # FRIDAY owns speech output; the wallpaper must remain silent.
+                    await asyncio.to_thread(jarvis_say, value, speak=False)
+            except Exception as exc:
+                # The wallpaper is optional and must never take down the agent.
+                print(f"[JarvisBridge] Non-fatal publish error: {exc}")
+            finally:
+                events.task_done()
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(event) -> None:
+        state = str(getattr(event, "new_state", "idle")).lower()
+        if state == "initializing":
+            state = "idle"
+        if state in BRIDGE_STATES:
+            events.put_nowait(("state", state))
+
+    @session.on("conversation_item_added")
+    def on_conversation_item_added(event) -> None:
+        item = getattr(event, "item", None)
+        if item is None:
+            return
+
+        role = str(getattr(item, "role", "")).lower()
+        if not role.endswith("assistant"):
+            return
+
+        text_content = getattr(item, "text_content", "")
+        if callable(text_content):
+            try:
+                text_content = text_content()
+            except Exception:
+                return
+
+        if isinstance(text_content, str) and text_content.strip():
+            events.put_nowait(("alert", text_content.strip()[:500]))
+
+    return events, asyncio.create_task(publish_events(), name="jarvisbridge-publisher")
 
 # ==========================================================
 # AGENT
@@ -402,6 +460,7 @@ async def entrypoint(
             print(f"[Context Error] {e}")
 
     session = AgentSession()
+    bridge_events, bridge_task = attach_jarvisbridge_hooks(session)
 
     # ======================================================
     # CONSOLE MODE
@@ -455,6 +514,13 @@ async def entrypoint(
         except Exception as e:
             print(f"[Greeting Error] {e}")
 
+        bridge_events.put_nowait(("state", "idle"))
+        await bridge_events.join()
+        bridge_task.cancel()
+        try:
+            await bridge_task
+        except asyncio.CancelledError:
+            pass
         return
 
     # ======================================================
@@ -489,6 +555,13 @@ async def entrypoint(
         ambient_task.cancel()
         try:
             await ambient_task
+        except asyncio.CancelledError:
+            pass
+        bridge_events.put_nowait(("state", "idle"))
+        await bridge_events.join()
+        bridge_task.cancel()
+        try:
+            await bridge_task
         except asyncio.CancelledError:
             pass
 

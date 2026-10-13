@@ -6,8 +6,8 @@ JarvisBridge is an optional local desktop-wallpaper companion for FRIDAY OS. It 
 
 - JarvisBridge Node server: `http://127.0.0.1:3000`
 - Wallpaper connection: WebSocket to the JarvisBridge server
-- FRIDAY adapter: `jarvis_bridge_client.py` (Python standard library only)
-- FRIDAY voice output remains authoritative. Use `jarvis_say(reply, speak=False)` to animate/show the reply without triggering a second voice.
+- FRIDAY adapter: `Friday_OS/Backend/jarvis_bridge_client.py` (Python standard library only)
+- FRIDAY voice output remains authoritative. The wallpaper receives assistant text with `speak=False`, preventing duplicate speech.
 
 ## Start the bridge
 
@@ -20,27 +20,21 @@ node servers.js
 
 Keep the wallpaper application running and connected. The server exposes `GET /health`, `POST /state`, and `POST /alert` on loopback port 3000.
 
-## Use from FRIDAY
+## Automatic integration
 
-The adapter is deliberately best-effort and uses a short timeout. If the bridge is not running, FRIDAY continues normally.
+The FRIDAY entrypoint (`Friday_OS/Backend/main.py`) subscribes to LiveKit's `agent_state_changed` and `conversation_item_added` events:
 
-```python
-from jarvis_bridge_client import jarvis_say, jarvis_state, jarvis_health
+- `initializing` is normalized to `idle`; `idle`, `listening`, `thinking`, and `speaking` are sent to the wallpaper.
+- Non-empty assistant text is sent to `POST /alert` with `speak=false`, so the wallpaper can display the reply without speaking over FRIDAY.
+- Events are serialized through an async queue and HTTP requests run in `asyncio.to_thread`; realtime audio processing is not blocked by network I/O.
+- Bridge errors are non-fatal. When FRIDAY's session ends, it publishes `idle` and shuts down the publisher task.
 
-jarvis_state("listening")
-jarvis_state("thinking")
-# reply = await FRIDAY's existing request/response pipeline
-jarvis_say(reply, speak=False)  # avoid duplicate speech from the wallpaper
-jarvis_state("speaking")        # while FRIDAY's own TTS is playing
-jarvis_state("idle")            # when FRIDAY finishes speaking
-```
+The integration is automatic once both processes are running. Start JarvisBridge separately using the steps above; FRIDAY does not spawn or manage the Node server or wallpaper process.
 
-Do not call these functions on every streamed audio chunk. Publish state transitions only. If calling from an asyncio event loop, use `await asyncio.to_thread(jarvis_state, "thinking")` for network calls so even the short HTTP timeout cannot stall audio processing.
-
-## Configuration
+## Configuration and security
 
 Set `JARVIS_BRIDGE_URL` only if the local bridge uses a different URL. The default is loopback-only at `http://127.0.0.1:3000`; do not expose this unauthenticated control endpoint to the public internet.
 
-## Integration boundary
+## Validation
 
-This commit adds the reusable adapter and integration guide. FRIDAY's LiveKit event hooks should be wired against the exact event API used by the installed LiveKit Agents version, and validated with the project test suite before enabling automatic state transitions. The adapter itself does not start the Node bridge or wallpaper process.
+A running end-to-end check requires Windows, the project's installed LiveKit Agents dependencies, a connected wallpaper WebSocket client, and both applications running together. Verify that the sphere follows listening/thinking/speaking/idle transitions and that assistant replies appear without a second voice. If the bridge is unavailable, FRIDAY should continue operating normally.
