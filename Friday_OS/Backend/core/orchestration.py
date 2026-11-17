@@ -90,7 +90,7 @@ class TaskOrchestrator:
             agent = item.get("agent")
             action = item.get("action")
             dependencies = item.get("depends_on", [])
-            if isinstance(step, bool) or step != expected:
+            if isinstance(step, bool) or not isinstance(step, int) or step != expected:
                 raise ValueError("Step numbers must be consecutive and ordered.")
             if not isinstance(agent, str) or not agent.strip():
                 raise ValueError("Each step requires a non-empty agent.")
