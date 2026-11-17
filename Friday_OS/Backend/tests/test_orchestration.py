@@ -44,3 +44,9 @@ def test_invalid_planner_output_falls_back_without_authorizing_actions():
     plan = json.loads(asyncio.run(TaskOrchestrator(planner).generate_execution_plan("send an email")))
     assert plan[0]["action"] == "safe_fallback_routing"
     assert "authorization" in plan[0]["reason"]
+
+
+def test_validate_rejects_non_integer_step_number():
+    plan = [{"step": 1.0, "agent": "research", "action": "search", "depends_on": []}]
+    with pytest.raises(ValueError):
+        TaskOrchestrator._validate_plan(plan)
