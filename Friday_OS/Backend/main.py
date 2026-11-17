@@ -432,138 +432,123 @@ async def start_ambient_trigger_loop(session: AgentSession) -> None:
 # ==========================================================
 
 @server.rtc_session()
-async def entrypoint(
-    ctx: JobContext,
-    context_tracker=None,
-):
-    print("[Agent] Initializing...")
+async def entrypoint(ctx: JobContext, context_tracker=None):
+    """
+    Own one LiveKit room lifecycle.
 
+    The optional context_tracker argument is retained for compatibility with
+    LiveKit dependency injection. When it is not injected, use the worker-level
+    tracker started by boot_subsystems().
+    """
+    print("[Agent] Initializing room session...")
     await ctx.connect()
     print("[Agent] Connected to room.")
 
+    active_tracker = context_tracker or globals().get("context_tracker")
     desktop_context = "You are FridayOS."
 
-    if context_tracker:
+    if active_tracker is not None:
         try:
-            current = context_tracker.current_context
-
-            print(f"[Agent] Active Window: {current['active_window_title']}")
-
+            current = active_tracker.current_context or {}
+            active_window = current.get("active_window_title", "Unknown")
+            active_process = current.get("active_process_name", "Unknown")
+            # Clipboard data is deliberately excluded from the default prompt.
+            # It may contain passwords, tokens, or private messages.
             desktop_context = (
                 "You are FridayOS, an ambient operating system intelligence.\n"
-                f"Active Window: {current['active_window_title']}\n"
-                f"Process Name: {current['active_process_name']}\n"
-                f"Clipboard Content: {current['clipboard_text']}"
+                f"Active Window: {active_window}\n"
+                f"Process Name: {active_process}"
             )
-
-        except Exception as e:
-            print(f"[Context Error] {e}")
+            print(f"[Agent] Active Window: {active_window}")
+        except Exception as exc:
+            print(f"[Context Error] Unable to read ambient context: {exc}")
 
     session = AgentSession()
     bridge_events, bridge_task = attach_jarvisbridge_hooks(session)
+    ambient_task: asyncio.Task | None = None
 
-    # ======================================================
-    # CONSOLE MODE
-    # ======================================================
+    async def stop_bridge() -> None:
+        """Flush the final idle state and stop the optional wallpaper worker."""
+        if bridge_task.done():
+            return
+        try:
+            bridge_events.put_nowait(("state", "idle"))
+        except asyncio.QueueFull:
+            pass
+        try:
+            await asyncio.wait_for(bridge_events.join(), timeout=2.0)
+        except asyncio.TimeoutError:
+            print("[JarvisBridge] Timed out flushing final events.")
+        bridge_task.cancel()
+        try:
+            await bridge_task
+        except asyncio.CancelledError:
+            pass
 
-    if "console" in sys.argv:
-        print("[Agent] Starting text session...")
+    try:
+        is_console = "console" in sys.argv
+        agent = FridayAgent()
 
+        if is_console:
+            print("[Agent] Starting console session...")
+            await session.start(room=ctx.room, agent=agent)
+
+            # Console mode must never publish generated audio.
+            session.output.set_audio_enabled(False)
+            print("[Safety] Audio output disabled for console mode.")
+
+            try:
+                await session.generate_reply(
+                    instructions=f"{desktop_context}\n\n{WELCOME_MESSAGE}"
+                )
+            except Exception as exc:
+                print(f"[Greeting Error] {exc}")
+
+            print("[Agent] Console session ready.")
+            await session.wait_for_shutdown()
+            return
+
+        print("[Agent] Starting voice session...")
         await session.start(
             room=ctx.room,
-            agent=FridayAgent(),
-        )
-
-        is_mock_participant = hasattr(
-            ctx.room.local_participant, "_mock_return_value"
-        ) or "mock" in str(type(ctx.room.local_participant))
-
-        session.output.set_audio_enabled(False)
-        print(
-            "[Safety Override] Audio generation engine disabled to prevent console exceptions."
-        )
-
-        if is_mock_participant:
-            print(
-                "[Safety Override] LiveKit Mock testing container detected. "
-                "Bypassing voice stream hooks."
-            )
-        else:
-            try:
-                if (
-                    hasattr(ctx.room.local_participant, "is_publisher")
-                    and not ctx.room.local_participant.is_publisher
-                ):
-                    print(
-                        "[Safety Override] No speaker/TTS engine available. "
-                        "Switching off active audio channels..."
-                    )
-                    ctx.room.local_participant.set_metadata(
-                        json.dumps({"audio_enabled": False})
-                    )
-            except Exception as e:
-                print(f"[Audio Safety Non-Fatal Error] {e}")
-
-        print("[Agent] Audio output disabled.")
-        print("[Agent] Ready.")
-
-        try:
-            await session.generate_reply(
-                instructions=f"{desktop_context}\n\n{WELCOME_MESSAGE}"
-            )
-        except Exception as e:
-            print(f"[Greeting Error] {e}")
-
-        bridge_events.put_nowait(("state", "idle"))
-        await bridge_events.join()
-        bridge_task.cancel()
-        try:
-            await bridge_task
-        except asyncio.CancelledError:
-            pass
-        return
-
-    # ======================================================
-    # VOICE MODE
-    # ======================================================
-
-    print("[Agent] Starting voice session...")
-
-    await session.start(
-        room=ctx.room,
-        agent=FridayAgent(),
-        room_options=room_io.RoomOptions(
-            video_input=room_io.VideoInputOptions(),
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=noise_cancellation.BVC(),
+            agent=agent,
+            room_options=room_io.RoomOptions(
+                video_input=room_io.VideoInputOptions(),
+                audio_input=room_io.AudioInputOptions(
+                    noise_cancellation=noise_cancellation.BVC(),
+                ),
             ),
-        ),
-    )
-
-    ambient_task = asyncio.create_task(start_ambient_trigger_loop(session))
-    try:
-        await session.generate_reply(
-            instructions=f"{desktop_context}\\n\\n{WELCOME_MESSAGE}"
         )
-        print("[Agent] Ready.")
+
+        ambient_task = asyncio.create_task(
+            start_ambient_trigger_loop(session),
+            name="friday-ambient-monitor",
+        )
+
+        await session.generate_reply(
+            instructions=f"{desktop_context}\n\n{WELCOME_MESSAGE}"
+        )
+        print("[Agent] Voice session ready.")
         await session.wait_for_shutdown()
+
     except asyncio.CancelledError:
+        print("[Agent] Room session cancelled.")
         raise
-    except Exception as e:
-        print(f"[Session Error] {e}")
+    except Exception as exc:
+        print(f"[Session Error] {type(exc).__name__}: {exc}")
+        raise
     finally:
-        ambient_task.cancel()
-        try:
-            await ambient_task
-        except asyncio.CancelledError:
-            pass
-        bridge_events.put_nowait(("state", "idle"))
-        await bridge_events.join()
-        bridge_task.cancel()
-        try:
-            await bridge_task
-        except asyncio.CancelledError:
-            pass
+        if ambient_task is not None:
+            ambient_task.cancel()
+            try:
+                await ambient_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                print(f"[Ambient Shutdown Error] {exc}")
+
+        await stop_bridge()
+        print("[Agent] Room session resources released.")
 
 
 # ==========================================================
